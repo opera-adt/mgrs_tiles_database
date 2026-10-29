@@ -15,6 +15,7 @@ from osgeo import ogr, osr, gdal
 from rasterio.mask import mask as rasterio_mask
 import rasterio
 
+ogr.DontUseExceptions()
 
 north_bound_polygon = Polygon(((-180, 84.5, 0),
                                (-180, 89.9, 0),
@@ -31,6 +32,70 @@ equator_bound_polygon = Polygon(((-180, -0.5, 0),
                                 (180, 0.5, 0),
                                 (180, -0.5, 0)))
 
+np2gdal_conversion = {
+  "byte": 1,
+  "uint8": 1,
+  "int8": 1,
+  "uint16": 2,
+  "int16": 3,
+  "uint32": 4,
+  "int32": 5,
+  "float32": 6,
+  "float64": 7,
+  "complex64": 10,
+  "complex128": 11,
+}
+def save_raster_gdal(data, output_file, geotransform,
+                     projection, scratch_dir='.',
+                     datatype='float32'):
+    """Save images using Gdal
+
+    Parameters
+    ----------
+    data: numpy.ndarray
+        Data to save into the file
+    output_file: str
+        full path for filename to save the DSWx-S1 file
+    geotransform: gdal
+        gdaltransform information
+    projection: gdal
+        projection object
+    scratch_dir: str
+        temporary file path to process COG file.
+    datatype: str
+        Data types to save the file.
+    """
+    gdal_type = np2gdal_conversion[str(datatype)]
+    image_size = data.shape
+    #  Set the Pixel Data (Create some boxes)
+    # set geotransform
+    if data.ndim == 3:
+        ndim = image_size[0]
+        ny = image_size[1]
+        nx = image_size[2]
+    elif data.ndim == 2:
+        ny = image_size[0]
+        nx = image_size[1]
+        ndim = 1
+
+    driver = gdal.GetDriverByName("GTiff")
+    output_file_path = os.path.join(output_file)
+    gdal_ds = driver.Create(output_file_path,
+                            nx, ny,
+                            ndim, gdal_type)
+    gdal_ds.SetGeoTransform(geotransform)
+    gdal_ds.SetProjection(projection)
+
+    if data.ndim == 2:
+        gdal_ds.GetRasterBand(1).WriteArray(data)
+    else:
+        for im_ind in range(0, ndim):
+            gdal_ds.GetRasterBand(im_ind+1).WriteArray(
+                np.squeeze(data[im_ind, :, :]))
+
+    gdal_ds.FlushCache()
+    gdal_ds = None
+    del gdal_ds  # close the dataset (Python object and pointers)
 
 # determine the path to the world land GPKG file
 # LAND_GPKG_FILE = os.path.join(WORKFLOW_SCRIPTS_DIR, 'data',
@@ -42,6 +107,9 @@ WORKFLOW_SCRIPTS_DIR = os.path.dirname(mgrs_tiles_database.__file__)
 
 LAND_GPKG_FILE = os.path.join(WORKFLOW_SCRIPTS_DIR, 'data',
                               'GSHHS_l_L1.shp.no_attrs.epsg3413_dissolved.gpkg')
+LAND_GPKG_FILE = os.path.join('/mnt/aurora-r0/jungkyo/OPERA/burst_db/MGRS_db'
+    ,'ocean_land_low_resolution.gpkg')
+
 # Convert 3D geometry to 2D
 def _get_land_mask(epsg_cslc: int, geotransform: tuple, shape_mask: tuple):
     '''
@@ -77,6 +145,7 @@ def _get_land_mask(epsg_cslc: int, geotransform: tuple, shape_mask: tuple):
     xmax = geotransform[0] + geotransform[1] * shape_mask[1]
     ymax = geotransform[3]
     bbox_cslc = ogr.Geometry(ogr.wkbPolygon)
+
     ring_cslc = ogr.Geometry(ogr.wkbLinearRing)
     ring_cslc.AddPoint(xmin, ymin)
     ring_cslc.AddPoint(xmax, ymin)
@@ -94,6 +163,7 @@ def _get_land_mask(epsg_cslc: int, geotransform: tuple, shape_mask: tuple):
 
     # Reproject the bounding box (in CSLC EPSG) to land polygon's EPSG
     transformer_cslc_to_land = osr.CoordinateTransformation(srs_cslc, srs_land)
+
     bbox_cslc.Transform(transformer_cslc_to_land)
 
     # Return a numpy array full of `False` when there is no intersection
@@ -128,6 +198,12 @@ def _get_land_mask(epsg_cslc: int, geotransform: tuple, shape_mask: tuple):
     gdal.RasterizeLayer(rasterized_land, [1], layer_intersection)
     mask_land = rasterized_land.ReadAsArray()
     rasterized_land = None
+
+    save_raster_gdal(mask_land, 'test_landwater2.tif',
+                     geotransform=geotransform,
+                     projection=srs_cslc.ExportToWkt(),
+                     scratch_dir='.',
+                     datatype='float32')
 
     return mask_land
 
@@ -205,6 +281,7 @@ def check_flag_land_ocean_landcover(landcover_data):
         ocean_land_class = 'land'
     elif land_pixel == 0:
         ocean_land_class = 'water'
+
     else:
         ocean_land_class = 'water/land'
 
