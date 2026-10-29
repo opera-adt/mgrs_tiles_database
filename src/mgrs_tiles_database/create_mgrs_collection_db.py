@@ -16,6 +16,7 @@ from rasterio.mask import mask as rasterio_mask
 import rasterio
 
 ogr.DontUseExceptions()
+
 north_bound_polygon = Polygon(((-180, 84.5, 0),
                                (-180, 89.9, 0),
                                (180, 89.9, 0),
@@ -108,6 +109,7 @@ LAND_GPKG_FILE = os.path.join(WORKFLOW_SCRIPTS_DIR, 'data',
                               'GSHHS_l_L1.shp.no_attrs.epsg3413_dissolved.gpkg')
 LAND_GPKG_FILE = os.path.join('/mnt/aurora-r0/jungkyo/OPERA/burst_db/MGRS_db'
     ,'ocean_land_low_resolution.gpkg')
+
 # Convert 3D geometry to 2D
 def _get_land_mask(epsg_cslc: int, geotransform: tuple, shape_mask: tuple):
     '''
@@ -143,9 +145,8 @@ def _get_land_mask(epsg_cslc: int, geotransform: tuple, shape_mask: tuple):
     xmax = geotransform[0] + geotransform[1] * shape_mask[1]
     ymax = geotransform[3]
     bbox_cslc = ogr.Geometry(ogr.wkbPolygon)
-    print('bbox', bbox_cslc)
+
     ring_cslc = ogr.Geometry(ogr.wkbLinearRing)
-    print('ring_cslc', ring_cslc)
     ring_cslc.AddPoint(xmin, ymin)
     ring_cslc.AddPoint(xmax, ymin)
     ring_cslc.AddPoint(xmax, ymax)
@@ -162,21 +163,12 @@ def _get_land_mask(epsg_cslc: int, geotransform: tuple, shape_mask: tuple):
 
     # Reproject the bounding box (in CSLC EPSG) to land polygon's EPSG
     transformer_cslc_to_land = osr.CoordinateTransformation(srs_cslc, srs_land)
-    # transformer_land_to_cslc = osr.CoordinateTransformation(srs_land, srs_cslc)
 
     bbox_cslc.Transform(transformer_cslc_to_land)
-    # bbox_cslc.Transform(transformer_land_to_cslc)
-    print('apap')
 
     # Return a numpy array full of `False` when there is no intersection
-    print(epsg_cslc)
-    print(land_epsg)
-    # print('bbox', bbox_cslc)
-    # print('land_polygon', land_polygon)
-
     if not bbox_cslc.Intersects(land_polygon):
         return np.full(shape_mask, False)
-    print('apap2')
 
     # Compute the intersection and reproject the result back to CSLC's EPSG
     intersection_land = bbox_cslc.Intersection(land_polygon)
@@ -212,8 +204,6 @@ def _get_land_mask(epsg_cslc: int, geotransform: tuple, shape_mask: tuple):
                      projection=srs_cslc.ExportToWkt(),
                      scratch_dir='.',
                      datatype='float32')
-
-    print('--')
 
     return mask_land
 
@@ -282,15 +272,16 @@ def get_label_landcover_esa_10():
 #     return ocean_land_class
 
 def check_flag_land_ocean_landcover(landcover_data):
-    print('landcover value', np.nanmean(landcover_data))
-    pixel_num = landcover_data.size
-    land_pixel = np.sum(landcover_data/255)
-    print('check_flag_land_ocean_landcover', int(land_pixel), pixel_num, int(land_pixel)==pixel_num)
 
-    if int(land_pixel) == pixel_num:
-        ocean_land_class = 'water'
+    pixel_num = landcover_data.size
+
+    land_pixel = np.sum(landcover_data)
+    print(land_pixel, pixel_num)
+    if land_pixel == pixel_num:
+        ocean_land_class = 'land'
     elif land_pixel == 0:
-        ocean_land_class = 'water/land'
+        ocean_land_class = 'water'
+
     else:
         ocean_land_class = 'water/land'
 
